@@ -71,19 +71,22 @@ cmake --build build
 ctest --test-dir build
 ```
 
-See the comments at the top of the toolchain file for the options
-(target architecture, image name, docker instead of podman, extra mounts).
+Only the source and build trees are mounted into the container; if the
+build depends on files elsewhere (a vcpkg root, headers and libraries from a
+sibling checkout, ...), list those directories in `MSVC_WINE_MOUNTS`.
 
-Each tool invocation starts a fresh container, which adds around a second of
-Wine startup time per compiled file, and prevents `mspdbsrv.exe` from
-staying alive between compiler invocations (so the toolchain file defaults
-to embedded debug info, `/Z7`). For big builds, or for `/Zi` debug info,
-start a long lived container once and have the toolchain use `podman exec`:
+The first tool invocation starts a long lived container in the background
+(named `msvc-wine-<hash>`, one per build tree), and every invocation after
+that is a `podman exec` into it. This keeps a single wineserver alive across
+the whole build, so the Wine startup cost is only paid once. The container
+exits on its own after 30 minutes of inactivity, and can be stopped at any
+time with `podman rm -f <name>`; the next tool invocation simply starts a
+new one.
 
-```bash
-podman run -d --name msvc -v "$HOME:$HOME" msvc-wine daemon
-cmake -S . -B build -G Ninja --toolchain /path/to/msvc-wine/toolchain.cmake -DMSVC_WINE_CONTAINER=msvc
-```
+See the comments at the top of the toolchain file for the options: target
+architecture, image name, docker instead of podman, the idle timeout, using
+a fresh container per invocation instead, or pointing the scripts at a
+container you manage yourself.
 
 
 # Build instructions for local installation

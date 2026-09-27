@@ -1,7 +1,9 @@
 FROM ubuntu:24.04
 
+# winbind is needed for cl.exe to talk to mspdbsrv.exe, i.e. for separate
+# PDB file debug info (/Zi), see https://github.com/mstorsjo/msvc-wine/issues/6
 RUN apt-get update && \
-    apt-get install -y wine64 python3 msitools ca-certificates && \
+    apt-get install -y wine64 winbind python3 msitools ca-certificates && \
     apt-get clean -y && \
     rm -rf /var/lib/apt/lists/*
 

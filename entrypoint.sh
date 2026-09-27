@@ -24,19 +24,22 @@
 #   wine-run <exe> [args...]  Run a Windows executable built with this
 #                             toolchain, with the environment set up so
 #                             that the MSVC runtime DLLs are found.
-#   daemon                    Start a persistent wineserver and sleep, for
+#   daemon                    Start a persistent wineserver and wait, for
 #                             use with `podman exec` (avoids paying the
 #                             wine startup cost on every tool invocation).
+#                             If MSVC_WINE_IDLE_TIMEOUT is set to a number
+#                             of seconds, exit after not having run any
+#                             tool for that long.
 #   <something>.exe [args...] Same as wine-run. Never rely on the kernel's
 #                             binfmt_misc to run .exe files inside the
 #                             container; a registration from the host leaks
 #                             in and points at a path in the container that
 #                             may not exist.
 
-set -e
-
 MSVC_ARCH=${MSVC_ARCH:-x64}
 MSVC_BIN=/opt/msvc/bin/$MSVC_ARCH
+# Touched on every invocation, so that daemon mode can detect idleness.
+ACTIVITY=/tmp/.msvc-wine-activity
 
 if [ ! -d "$MSVC_BIN" ]; then
     echo "entrypoint: unsupported MSVC_ARCH '$MSVC_ARCH'; available:" \
@@ -46,6 +49,7 @@ fi
 
 export PATH=$MSVC_BIN:$PATH
 WINE=$(command -v wine64 || command -v wine || false)
+touch "$ACTIVITY"
 
 run_exe() {
     . "$MSVC_BIN"/msvcenv.sh
@@ -67,8 +71,23 @@ case "$1" in
     daemon)
         wineserver -p
         "$WINE" wineboot
-        exec sleep infinity
+        timeout=${MSVC_WINE_IDLE_TIMEOUT:-0}
+        if [ "$timeout" -le 0 ]; then
+            exec sleep infinity
+        fi
+        while true; do
+            sleep 30
+            last=$(stat -c %Y "$ACTIVITY")
+            if [ $(( $(date +%s) - last )) -ge "$timeout" ]; then
+                echo "entrypoint: idle for ${timeout}s, exiting" >&2
+                wineserver -k
+                exit 0
+            fi
+        done
         ;;
 esac
 
-exec "$@"
+"$@"
+ec=$?
+touch "$ACTIVITY"
+exit $ec
