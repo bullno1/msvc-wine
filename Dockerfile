@@ -20,7 +20,15 @@ RUN PYTHONUNBUFFERED=1 ./vsdownload.py --accept-license --dest /opt/msvc && \
     rm lowercase fixinclude install.sh vsdownload.py && \
     rm -rf wrappers
 
-COPY msvcenv-native.sh /opt/msvc
+COPY msvcenv-native.sh entrypoint.sh /opt/msvc/
+
+# Make the image usable directly as a toolchain, e.g.
+# `podman run --rm -v "$PWD:$PWD" -w "$PWD" msvc-wine cl hello.c`.
+# See entrypoint.sh for the details and toolchain.cmake for
+# how to use this from CMake on the host.
+ENV MSVC_ARCH=x64
+ENTRYPOINT ["/opt/msvc/entrypoint.sh"]
+CMD ["bash"]
 
 # Later stages which actually uses MSVC can ideally start a persistent
 # wine server like this:

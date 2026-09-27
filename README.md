@@ -39,6 +39,52 @@ There's also a reproducible dockerfile, that creates a docker image with
 the MSVC tools available in `/opt/msvc`. (This also serves as a testable
 example of an environment where the install is known to work.)
 
+## Using the container image as a toolchain from the host
+
+The image's entrypoint puts the wrappers on `PATH`, so the tools can be
+invoked directly, as long as the files to operate on are bind mounted at
+the same path as on the host (the wrappers map absolute Unix paths to the
+`z:` drive, which is the container's root):
+
+```bash
+podman build -t msvc-wine .
+podman run --rm -v "$PWD:$PWD" -w "$PWD" msvc-wine cl hello.c
+podman run --rm -v "$PWD:$PWD" -w "$PWD" msvc-wine wine-run hello.exe
+podman run --rm -v "$PWD:$PWD" -w "$PWD" -e MSVC_ARCH=x86 msvc-wine cl hello.c
+```
+
+`wine-run` runs an executable with the MSVC runtime DLLs on the Wine path.
+Don't rely on executing `.exe` files directly from a shell inside the
+container, even if it appears to work: a Wine `binfmt_misc` registration on
+the host applies inside the container too, but it points at a path that may
+not exist in the image, and it skips setting up the DLL search path.
+
+For CMake projects, `toolchain.cmake` takes care of all of this. It
+generates a small shell script per tool in the build tree, which runs the
+tool in a container with the source and build trees mounted, and sets the
+compilers, the linker and `CMAKE_CROSSCOMPILING_EMULATOR` (used by
+`try_run()` and `ctest`) to these scripts. Nothing needs to be on `PATH`:
+
+```bash
+cmake -S . -B build -G Ninja --toolchain /path/to/msvc-wine/toolchain.cmake
+cmake --build build
+ctest --test-dir build
+```
+
+See the comments at the top of the toolchain file for the options
+(target architecture, image name, docker instead of podman, extra mounts).
+
+Each tool invocation starts a fresh container, which adds around a second of
+Wine startup time per compiled file, and prevents `mspdbsrv.exe` from
+staying alive between compiler invocations (so the toolchain file defaults
+to embedded debug info, `/Z7`). For big builds, or for `/Zi` debug info,
+start a long lived container once and have the toolchain use `podman exec`:
+
+```bash
+podman run -d --name msvc -v "$HOME:$HOME" msvc-wine daemon
+cmake -S . -B build -G Ninja --toolchain /path/to/msvc-wine/toolchain.cmake -DMSVC_WINE_CONTAINER=msvc
+```
+
 
 # Build instructions for local installation
 
