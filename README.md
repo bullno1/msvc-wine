@@ -41,10 +41,11 @@ example of an environment where the install is known to work.)
 
 ## Using the container image as a toolchain from the host
 
-The image's entrypoint puts the wrappers on `PATH`, so the tools can be
-invoked directly, as long as the files to operate on are bind mounted at
-the same path as on the host (the wrappers map absolute Unix paths to the
-`z:` drive, which is the container's root):
+The image has the tools on `PATH` (for the architecture selected by the
+`MSVC_ARCH` environment variable, `x64` by default), so they can be invoked
+directly with both `podman run` and `podman exec`, as long as the files to
+operate on are bind mounted at the same path as on the host (the wrappers
+map absolute Unix paths to the `z:` drive, which is the container's root):
 
 ```bash
 podman build -t msvc-wine .

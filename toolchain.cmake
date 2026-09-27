@@ -61,7 +61,7 @@
 #   MSVC_WINE_CONTAINER     Name of an already running container to exec
 #                           into instead of a managed one; start it with
 #                             podman run -d --name <name> -v "$HOME:$HOME" \
-#                                 msvc-wine daemon
+#                                 msvc-wine msvc-wine-daemon
 #
 # With MSVC_WINE_DAEMON=OFF, debug info defaults to the embedded (/Z7)
 # format: separate PDB files (/Zi) need mspdbsrv.exe to stay alive between
@@ -175,10 +175,14 @@ start() {
     # whichever creates the container first wins, the others just wait for
     # it to come up. A stopped container is auto-removed (--rm), so
     # `start` is only for the rare case of one that exists but isn't up.
-    "$runtime" start "$container" >/dev/null 2>&1 ||
+    #
+    # The runtime must not inherit the lock's file descriptor (9): podman
+    # leaves a monitor process behind for the container's lifetime, which
+    # would otherwise keep the lock held for that long.
+    "$runtime" start "$container" >/dev/null 2>&1 9>&- ||
     "$runtime" run -d --rm --name "$container" \
         -e MSVC_WINE_IDLE_TIMEOUT="$idle_timeout" \
-        @_msvc_wine_mount_args@ @MSVC_WINE_RUN_ARGS@ "$image" daemon >/dev/null 2>&1
+        @_msvc_wine_mount_args@ @MSVC_WINE_RUN_ARGS@ "$image" msvc-wine-daemon >/dev/null 2>&1 9>&-
     i=0
     while ! running; do
         i=$((i + 1))
@@ -192,7 +196,7 @@ start() {
 
 if [ "$managed" = 1 ] && ! running; then
     if command -v flock >/dev/null 2>&1; then
-        ( flock 9 && start ) 9>"${0%/*}/.container.lock" || exit 1
+        ( flock -w 120 9 && start ) 9>"${0%/*}/.container.lock" || exit 1
     else
         start || exit 1
     fi

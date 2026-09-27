@@ -22,17 +22,25 @@ RUN PYTHONUNBUFFERED=1 ./vsdownload.py --accept-license --dest /opt/msvc && \
     rm lowercase fixinclude install.sh vsdownload.py && \
     rm -rf wrappers
 
-COPY msvcenv-native.sh entrypoint.sh /opt/msvc/
+COPY msvcenv-native.sh tool-dispatch.sh /opt/msvc/
 
-# Make the image usable directly as a toolchain, e.g.
-# `podman run --rm -v "$PWD:$PWD" -w "$PWD" msvc-wine cl hello.c`.
-# See entrypoint.sh for the details and toolchain.cmake for
-# how to use this from CMake on the host.
+# Put architecture independent entry points for all the tools on PATH, so
+# that the image can be used directly as a toolchain, with both `run` and
+# `exec`, e.g. `podman run --rm -v "$PWD:$PWD" -w "$PWD" msvc-wine cl hello.c`.
+# See tool-dispatch.sh for the details and toolchain.cmake for how to use
+# this from CMake on the host.
+RUN mkdir -p /opt/msvc/bin/any && \
+    cd /opt/msvc/bin/any && \
+    for tool in $(ls /opt/msvc/bin/*/ | grep -v '\.exe$\|\.sh$\|:$' | sort -u) wine-run msvc-wine-daemon; do \
+        ln -s ../../tool-dispatch.sh $tool; \
+    done
+ENV PATH=/opt/msvc/bin/any:$PATH
 ENV MSVC_ARCH=x64
-ENTRYPOINT ["/opt/msvc/entrypoint.sh"]
-CMD ["bash"]
 
-# Later stages which actually uses MSVC can ideally start a persistent
-# wine server like this:
-#RUN wineserver -p && \
-#    $(command -v wine64 || command -v wine || false) wineboot && \
+# Install VC runtime
+RUN wine wineboot && wineserver -w \
+   && r=$(ls -d /opt/msvc/VC/Redist/MSVC/*/ | head -1) \
+   && s=/root/.wine/drive_c/windows/system32 \
+   && cp "$r"/x64/Microsoft.VC145.CRT/*.dll "$s"/ \
+   && cp "$r"/debug_nonredist/x64/Microsoft.VC145.DebugCRT/*.dll "$s"/ \
+   && cp /opt/msvc/kits/10/bin/*/x64/ucrt/ucrtbased.dll "$s"/
